@@ -7,58 +7,73 @@ from sentence_transformers import SentenceTransformer, util
 import torch
 from fpdf import FPDF
 
-
+# -----------------------------
 # LOAD MODELS
+# -----------------------------
+@st.cache_resource
+def load_models():
+    nlp = spacy.load("en_core_web_sm")
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device=device)
+    return nlp, model, device
 
-nlp = spacy.load("en_core_web_sm")
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+nlp, model, device = load_models()
 
-# ✅ Force CPU or GPU explicitly
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device=device)
-
+# -----------------------------
 # PAGE CONFIG
-
-st.set_page_config(page_title="AI Resume Analyzer", layout='wide', page_icon="🤖")
+# -----------------------------
+st.set_page_config(
+    page_title="AI Resume Analyzer",
+    layout='wide',
+    page_icon="🤖"
+)
 
 st.title("🤖 AI Resume Analyzer")
 st.markdown("### Upload your Resume and Job Description to get an **AI-powered skill match report**!")
 
-# Sidebar
-# st.sidebar.header("⚙ Settings")
+# -----------------------------
+# SIDEBAR SETTINGS
+# -----------------------------
 if "threshold" not in st.session_state:
-    st.session_state["threshold"] = 70  # default once
+    st.session_state["threshold"] = 70  # Default threshold
 
-st.sidebar.header("⚙ Settings")
+st.sidebar.header("⚙️ Settings")
 st.session_state["threshold"] = st.sidebar.slider(
     "Semantic Match Threshold (%)",
     50,
     90,
     st.session_state["threshold"]
-)  # keeps 
+)
 threshold = st.session_state["threshold"] / 100
 
-# FILE INPUT
-
+# -----------------------------
+# FILE INPUTS
+# -----------------------------
 resume_file = st.file_uploader("📄 Upload your Resume", type=["pdf", "txt", "docx"])
-job_description = st.text_area("Paste Job Description here..!", height=200)
+job_description = st.text_area("💼 Paste Job Description here..!", height=200)
 
+# -----------------------------
 # HELPER FUNCTIONS
+# -----------------------------
 def extract_text(file):
     ext = os.path.splitext(file.name)[1].lower()
     text = ""
 
-    if ext == '.pdf':
-        with pdfplumber.open(file) as pdf:
-            for page in pdf.pages:
-                text += page.extract_text() or ""
-    elif ext == '.docx':
-        doc = docx.Document(file)
-        for para in doc.paragraphs:
-            text += para.text + "\n"
-    elif ext == ".txt":
-        text = file.read().decode("utf-8")
-    else:
-        st.error("❌ Unsupported file format!")
+    try:
+        if ext == '.pdf':
+            with pdfplumber.open(file) as pdf:
+                for page in pdf.pages:
+                    text += page.extract_text() or ""
+        elif ext == '.docx':
+            doc = docx.Document(file)
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+        elif ext == ".txt":
+            text = file.read().decode("utf-8")
+        else:
+            st.error("❌ Unsupported file format!")
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
 
     return text.strip()
 
@@ -121,7 +136,9 @@ def create_pdf_report(matched, missing, match_percent):
     return path
 
 
-#main
+# -----------------------------
+# MAIN ANALYSIS LOGIC
+# -----------------------------
 if st.button("🚀 Analyze"):
     if resume_file and job_description:
         resume_text = extract_text(resume_file)
@@ -133,31 +150,34 @@ if st.button("🚀 Analyze"):
             matched, missing = semantic_similarity(resume_skills, job_skills, threshold)
             match_percent = (len(matched) / len(job_skills)) * 100 if job_skills else 0
 
-          
             st.markdown("## 🧾 Analysis Summary")
-
-            # Progress bar
             st.progress(int(match_percent))
             st.markdown(f"### 🎯 Match Score: **{match_percent:.2f}%**")
 
-            # Skills columns
             col1, col2 = st.columns(2)
 
             with col1:
                 st.markdown("### ✅ Matched Skills")
                 if matched:
-                    st.markdown(" ".join([f"<span style='color:white;background-color:green;padding:5px 10px;border-radius:10px;margin:3px;display:inline-block'>{s}</span>" for s in matched]), unsafe_allow_html=True)
+                    st.markdown(
+                        " ".join([
+                            f"<span style='color:white;background-color:green;padding:5px 10px;border-radius:10px;margin:3px;display:inline-block'>{s}</span>"
+                            for s in matched
+                        ]), unsafe_allow_html=True)
                 else:
                     st.info("No matched skills found.")
 
             with col2:
                 st.markdown("### ❌ Missing Skills")
                 if missing:
-                    st.markdown(" ".join([f"<span style='color:white;background-color:#d9534f;padding:5px 10px;border-radius:10px;margin:3px;display:inline-block'>{s}</span>" for s in missing]), unsafe_allow_html=True)
+                    st.markdown(
+                        " ".join([
+                            f"<span style='color:white;background-color:#d9534f;padding:5px 10px;border-radius:10px;margin:3px;display:inline-block'>{s}</span>"
+                            for s in missing
+                        ]), unsafe_allow_html=True)
                 else:
                     st.success("No missing skills!")
 
-            # Show extracted skills
             st.divider()
             st.subheader("🧩 Extracted Resume Skills")
             st.write(", ".join(resume_skills) if resume_skills else "No skills detected.")
@@ -165,12 +185,11 @@ if st.button("🚀 Analyze"):
             st.subheader("📋 Job Description Skills")
             st.write(", ".join(job_skills) if job_skills else "No skills detected.")
 
-            # Resume text
             st.divider()
             with st.expander("📜 View Extracted Resume Text"):
                 st.write(resume_text[:2000] + "..." if len(resume_text) > 2000 else resume_text)
 
-            # Generate report
+            # Generate and download PDF report
             pdf_path = create_pdf_report(matched, missing, match_percent)
             with open(pdf_path, "rb") as pdf_file:
                 st.download_button(
