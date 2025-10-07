@@ -12,7 +12,14 @@ from fpdf import FPDF
 # -----------------------------
 @st.cache_resource
 def load_models():
-    nlp = spacy.load("en_core_web_sm")
+    try:
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        from spacy.cli import download
+        download("en_core_web_sm")
+        nlp = spacy.load("en_core_web_sm")
+
+    
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device=device)
     return nlp, model, device
